@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0b0f19;
+  --color-card: #151d30;
+  --color-cyan-400: #22d3ee;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-crimson-400: #fb7185;
+  --color-crimson-500: #e11d48;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-white m-0 p-0 font-sans;
+  }
+}
