@@ -79,7 +79,7 @@ Respond ONLY with valid JSON matching this exact schema:
         # Run synchronous genai call in a thread to not block async loop
         response = await asyncio.to_thread(
             lambda: client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
                 config=genai_types.GenerateContentConfig(
                     temperature=0.2,
