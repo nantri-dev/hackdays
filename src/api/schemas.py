@@ -11,6 +11,13 @@ class SensorData(BaseModel):
     r_factor: float
     status: str
 
+class LLMEvent(BaseModel):
+    timestamp: float
+    sensor_idx: int
+    fault_type: str
+    message: str
+    is_fallback: bool
+
 class TelemetryFrame(BaseModel):
     timestamp: float
     temperature: float
@@ -18,3 +25,6 @@ class TelemetryFrame(BaseModel):
     fused_current: float
     bounds: List[float]
     sensors: List[SensorData]
+    is_online: bool
+    queue_size: int
+    events: List[LLMEvent]

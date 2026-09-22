@@ -17,7 +17,7 @@ export function BiasTracker({ data }: { data: TelemetryFrame[] }) {
         <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
           <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
           <XAxis dataKey="time" stroke="#9ca3af" tick={{fill: '#9ca3af'}} />
-          <YAxis stroke="#9ca3af" tick={{fill: '#9ca3af'}} />
+          <YAxis stroke="#9ca3af" tick={{fill: '#9ca3af'}} domain={[-1, 1]} />
           <Tooltip contentStyle={{ backgroundColor: '#151d30', borderColor: '#374151' }} />
           <Line type="monotone" dataKey="b1" stroke="#3b82f6" dot={false} strokeWidth={2} name="Shunt Bias" />
           <Line type="monotone" dataKey="b2" stroke="#8b5cf6" dot={false} strokeWidth={2} name="Hall 1 Bias" />

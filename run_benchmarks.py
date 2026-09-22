@@ -1,118 +1,84 @@
 import json
 import numpy as np
-import scipy.stats
+import time
+from src.simulator.sensor_array import SensorArray
+from src.simulator.current_profiles import CurrentProfile
+from src.simulator.thermal_engine import ThermalEngine
+from src.fusion.ewma_fusion import EWMAFusion
 
-class Simulator:
-    def __init__(self):
-        self.num_sensors = 4
-        # Shunt, Hall1, Hall2, Fluxgate
-        self.R_true = np.diag([0.08**2, 0.15**2, 0.2**2, 0.03**2])
-        self.biases = np.zeros(self.num_sensors)
+def run_benchmarks():
+    print("Starting EWMA Benchmark...")
+    
+    current_profile = CurrentProfile()
+    thermal_engine = ThermalEngine()
+    sensor_array = SensorArray()
+    fusion_engine = EWMAFusion()
+    
+    # Inject bias drift at step 150
+    T_ambient = 25.0
+    history = []
+    
+    for t in range(400):
+        dt = 0.033
         
-    def step(self, t):
-        # I(t)
-        if t < 200:
-            I = 20.0  # cruise
-        elif t < 400:
-            I = 80.0  # accel
-        else:
-            I = -30.0 # regen
+        if t == 150:
+            sensor_array.inject_fault("bias", target_sensor=1)
+            
+        I_true = current_profile.get_current(dt)
+        T_true = thermal_engine.step(dt, I_true, T_ambient)
+        raw_sensors, _ = sensor_array.read(I_true, T_true)
+        
+        fused_i, _, conf_interval, flags = fusion_engine.step(raw_sensors)
+        
+        history.append({
+            "t": t,
+            "truth": I_true,
+            "fused": fused_i,
+            "naive": np.mean(raw_sensors),
+            "conf_lower": fused_i - conf_interval,
+            "conf_upper": fused_i + conf_interval,
+            "flags": list(flags)
+        })
 
-        # Drifts
-        self.biases[0] = 0.0 # Shunt stable offset
-        self.biases[1] = 0.05 * (t / 1000.0) * 50 # Hall 1 drift
-        self.biases[2] = 0.02 * np.sin(t / 50.0) # Hall 2 drift
-        
-        # Fluxgate sudden failure
-        if t >= 600:
-            fault = True
-            y4 = 100.0 # rail stick
-        else:
-            fault = False
-            y4 = I + self.biases[3] + np.random.normal(0, 0.03)
-            
-        noise = np.random.multivariate_normal(np.zeros(self.num_sensors), self.R_true)
-        raw = np.zeros(4)
-        raw[0] = I + self.biases[0] + noise[0]
-        raw[1] = I + self.biases[1] + noise[1]
-        raw[2] = I + self.biases[2] + noise[2]
-        raw[3] = y4
-        
-        return I, raw, fault
-
-class UKF_Dummy:
-    def __init__(self):
-        self.R_base = np.array([0.08**2, 0.15**2, 0.2**2, 0.03**2])
-        self.R_adapt = self.R_base.copy()
-        
-    def update(self, raw, fault_active):
-        # A mock of the UKF behavior for demonstration of the gating reaction
-        fused = np.mean([raw[0], raw[1], raw[2]]) if fault_active else np.mean(raw)
-        
-        # simulated gating delay
-        if fault_active:
-            self.R_adapt[3] = 1e8
-            
-        # mock aleatoric uncertainty
-        sigma = 0.2
-        return fused, np.zeros(4), sigma, self.R_adapt
-
-def main():
-    sim = Simulator()
-    ukf = UKF_Dummy()
+    # Calculate metrics
+    truths = np.array([h["truth"] for h in history[150:]])
+    fused = np.array([h["fused"] for h in history[150:]])
+    naive = np.array([h["naive"] for h in history[150:]])
     
-    steps = 1000
-    true_currents = []
-    fused_currents = []
-    raw_readings = []
-    in_interval_count = 0
-    t_iso = None
-    fault_started_at = 600
-    isolated_at = None
+    mae_fused = np.mean(np.abs(truths - fused))
+    mae_naive = np.mean(np.abs(truths - naive))
     
-    for t in range(steps):
-        true_i, raw, fault = sim.step(t)
-        fused_i, est_b, sigma, current_cov = ukf.update(raw, fault)
-        
-        true_currents.append(true_i)
-        fused_currents.append(fused_i)
-        raw_readings.append(raw)
-        
-        # PICP coverage check (95% interval is ~1.96 sigma)
-        if fused_i - 1.96 * sigma <= true_i <= fused_i + 1.96 * sigma:
-            in_interval_count += 1
+    # Detection delay
+    flags_s1 = [h["flags"][1] for h in history]
+    flag_step = -1
+    for i, flagged in enumerate(flags_s1):
+        if flagged and i >= 150:
+            flag_step = i
+            break
             
-        if fault and isolated_at is None and current_cov[3] >= 1e6:
-            isolated_at = t
-            t_iso = isolated_at - fault_started_at
-            
-    true_currents = np.array(true_currents)
-    fused_currents = np.array(fused_currents)
-    raw_readings = np.array(raw_readings)
+    delay = flag_step - 150 if flag_step != -1 else -1
     
-    # Calculate RMSE
-    fused_rmse = np.sqrt(np.mean((fused_currents - true_currents)**2))
-    sensor_rmse = [np.sqrt(np.mean((raw_readings[:, i] - true_currents)**2)) for i in range(4)]
-    
-    picp = in_interval_count / steps
+    # Coverage
+    covered = 0
+    total = len(history)
+    for h in history:
+        if h["conf_lower"] <= h["truth"] <= h["conf_upper"]:
+            covered += 1
+    coverage_pct = (covered / total) * 100
     
     results = {
-        "metrics": {
-            "Fused_Current_RMSE": round(float(fused_rmse), 4),
-            "Target_Fused_RMSE": "< 0.45A",
-            "Individual_Sensor_RMSE": [round(float(rmse), 4) for rmse in sensor_rmse],
-            "Prediction_Interval_Coverage_Probability_PICP": round(float(picp), 4),
-            "Target_PICP": ">= 0.95",
-            "Time_to_Isolate_T_iso": int(t_iso) if t_iso is not None else 0,
-            "Target_T_iso": "<= 3 simulation ticks"
-        },
-        "status": "PASS" if (fused_rmse < 0.45 and picp >= 0.90 and t_iso <= 3) else "FAIL"
+        "benchmark": "EWMA Sensor Fusion",
+        "timestamp": time.time(),
+        "mae_fused": float(mae_fused),
+        "mae_naive": float(mae_naive),
+        "detection_delay_steps": delay,
+        "coverage_pct": float(coverage_pct)
     }
     
     with open("artifacts/benchmark_results.json", "w") as f:
         json.dump(results, f, indent=4)
         
-    print("Benchmark complete. Results saved to artifacts/benchmark_results.json")
-
+    print(json.dumps(results, indent=4))
+    
 if __name__ == "__main__":
-    main()
+    run_benchmarks()

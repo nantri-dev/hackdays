@@ -1,90 +1,19 @@
-# FLOWSTRUCTURE: Self-Calibrating Current Sensor Fusion Under Thermal Drift
+# Architecture & Flow Structure
 
-## 1. System Scope & Domain Definition
+## 1. Local Offline-First Physics Loop (30Hz)
+- **`current_profiles.py`**: Generates the true current.
+- **`thermal_engine.py`**: Simulates temperature based on current.
+- **`sensor_array.py`**: Generates 4 readings, adds noise, and injects physical faults (Bias, Gain, Stuck, Noise).
+- **`ewma_fusion.py`**: Analyzes the raw readings entirely offline. Flags drift using a median-reference variance test and outputs a fused, clean signal.
 
-- **Target Signal:** Electrical Load Current `I(t)` in Amperes [A].
-- **Environmental Stressor:** Operating and ambient temperature `T(t)` in Celsius [°C] (ambient shifts + Joule `I^2*R` heating).
-- **Sensor Array:** 4 Heterogeneous Current Sensors:
-    - **Sensor 1:** Shunt Resistor (TCR thermal gain drift, 0A offset stable).
-    - **Sensor 2:** Closed-Loop Hall Sensor A (Temperature-induced DC zero-offset drift).
-    - **Sensor 3:** Open-Loop Hall Sensor B (Nonlinear thermal offset + core magnetic saturation).
-    - **Sensor 4:** Fluxgate/TMR Sensor (High precision, thermal open-circuit/rail-stick fault mode).
+## 2. API & Connectivity Layer (`server.py`)
+- **Websocket (`/ws/telemetry`)**: Streams the fused data and component statuses to the React frontend.
+- **`connectivity.py`**: A background monitor that tracks if the internet connection is active (`is_online`).
+- **`local_store.py`**: A lightweight SQLite database (`offline_queue.db`) that durably stores anomaly events if the network goes down.
+- **`llm_service.py`**: Contacts Gemini to translate mathematical fault flags into plain-English operator warnings (e.g. "Sensor 1 experienced bias drift").
 
----
-
-## 2. End-to-End Execution Flow
-
-```text
-[Raw Multimodal Sensor Streams & Temperature Data]
-                            |
-                            v
-[ Electro-Thermal Preprocessing & Temporal Alignment ]
-                            |
-                            v
-[    Masked Channel Cross-Reconstruction (STAE)      ]
-                            |
-                            | (Residual Vectors)
-                            v
-[ Augmented State UKF (Tracking [I, dI/dt, b1..b4])  ]
-                            |
-                            v
-[   Dynamic NIS Covariance Gating (R-inflation)      ]
-                            |
-                            v
-[      Conformal Uncertainty Quantification          ]
-                            |
-                            v
-[           WebSocket Data Broadcast                 ]
-                            |
-                            v
-[             Live React Dashboard                   ]
-```
-
----
-
-## 3. Explicit Directory Tree
-
-```
-.
-├── configs/
-│   └── sensor_specs.yaml
-├── src/
-│   ├── simulator/
-│   │   ├── current_profiles.py
-│   │   ├── thermal_engine.py
-│   │   └── sensor_array.py
-│   ├── models/
-│   │   ├── masked_autoencoder.py
-│   │   └── conformal_engine.py
-│   ├── fusion/
-│   │   ├── augmented_ukf.py
-│   │   ├── nis_gating.py
-│   │   └── pipeline.py
-│   └── api/
-│       ├── server.py
-│       └── schemas.py
-├── frontend/
-│   └── (React + TypeScript + Tailwind + Recharts/Canvas structure)
-└── tests/
-    ├── test_thermal_drift.py
-    ├── test_gating.py
-    └── test_pipeline.py
-```
-
----
-
-## 4. State Machine & Gating Lifecycle
-
-The sensor fusion gating logic transitions through the following states based on the Normalized Innovation Squared (NIS) score of each individual sensor:
-
-- **Healthy**
-  - **Condition:** NIS <= 3.84
-  - **Action:** Sensor is operating normally within expected thermal bounds. Nominal base covariance (R_base) is applied.
-
-- **Drifting / Re-calibrating**
-  - **Condition:** 3.84 < NIS <= 15.0
-  - **Action:** Sub-system indicates early signs of thermal drift. Measurement noise covariance is dynamically inflated (R-inflation) to gracefully de-weight the sensor's contribution to the fused state while tracking its bias.
-
-- **Isolated / Hardware Failure**
-  - **Condition:** NIS > 15.0
-  - **Action:** Abrupt hardware failure, severe saturation, or rail-stick fault detected. Sensor is effectively gated out of the state update by setting R = 1e8.
+## 3. The Intermittent Connectivity Lifecycle
+1. **Normal Operation**: Sensors fuse locally. If a fault is found, the server fetches a Gemini explanation instantly and streams it to the UI Event Log.
+2. **Offline Disconnect**: The user pulls the plug (or simulates it). The fusion engine continues flawlessly at 30Hz because it requires no internet.
+3. **Queueing**: A fault occurs offline. Because Gemini cannot be reached, the server generates a templated fallback message ("Explanation pending reconnect") and writes the raw fault data to the SQLite queue.
+4. **Reconciliation**: The network connection is restored. A background reconciliation loop detects the `OFFLINE -> ONLINE` transition, iterates over every unsynced row in the SQLite database, fetches the real Gemini explanation, updates the database, and flushes the true AI analysis to the dashboard without dropping any data.
