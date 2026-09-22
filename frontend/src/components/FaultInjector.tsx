@@ -29,7 +29,7 @@ const COLOR_MAP: Record<string, string> = {
   crimson: 'border-red-800 hover:border-red-400 hover:text-red-400',
 };
 
-export function FaultInjector() {
+export function FaultInjector({ token, onAuthError }: { token: string, onAuthError: () => void }) {
   const [loading, setLoading] = useState('');
 
   const injectFault = async (btn: FaultBtn) => {
@@ -37,15 +37,21 @@ export function FaultInjector() {
     const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
     const url = `${apiBase.startsWith('http') ? '' : 'http://'}${apiBase}/api/inject_fault`;
     try {
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           fault_type: btn.id,
           sensor_id: btn.sensorId ?? 0,
           ...btn.params,
         }),
       });
+      if (res.status === 401) {
+        onAuthError();
+      }
     } catch (e) {
       console.error(e);
     }
@@ -70,6 +76,23 @@ export function FaultInjector() {
             <span className="font-mono text-[10px] text-center leading-tight">{btn.label}</span>
           </button>
         ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <button
+          onClick={() => injectFault({ id: 'network_offline', label: 'OFFLINE', icon: <WifiOff size={14}/>, color: 'crimson' })}
+          disabled={loading !== ''}
+          className="bg-red-950/40 border border-red-800 rounded p-1.5 flex flex-col items-center justify-center gap-1 hover:border-red-500 hover:bg-red-900 transition-colors disabled:opacity-40 text-red-400"
+        >
+          <span className="font-mono text-[9px]">PULL CABLE (OFFLINE)</span>
+        </button>
+        <button
+          onClick={() => injectFault({ id: 'network_online', label: 'ONLINE', icon: <WifiOff size={14}/>, color: 'emerald' })}
+          disabled={loading !== ''}
+          className="bg-emerald-950/40 border border-emerald-800 rounded p-1.5 flex flex-col items-center justify-center gap-1 hover:border-emerald-500 hover:bg-emerald-900 transition-colors disabled:opacity-40 text-emerald-400"
+        >
+          <span className="font-mono text-[9px]">RECONNECT (ONLINE)</span>
+        </button>
       </div>
 
       <button

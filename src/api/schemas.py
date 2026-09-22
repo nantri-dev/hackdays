@@ -40,3 +40,5 @@ class TelemetryFrame(BaseModel):
     sensors: List[SensorData]
     disambiguation: str      # NOMINAL / SENSOR_FAULT / REAL_EVENT_DETECTED
     gemini_brief: Optional[GeminiDiagnostic] = None
+    is_online: bool
+    local_queue_size: int

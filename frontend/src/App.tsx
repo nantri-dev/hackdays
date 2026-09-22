@@ -1,10 +1,12 @@
-import { Activity, Thermometer } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Activity, Thermometer, LogOut, Database } from 'lucide-react';
 import { CurrentWaveform } from './components/CurrentWaveform';
 import { SensorHealthMatrix } from './components/SensorHealthMatrix';
 import { FaultInjector } from './components/FaultInjector';
 import { BiasTracker } from './components/BiasTracker';
 import { DiagnosticBrief } from './components/DiagnosticBrief';
 import { useTelemetry } from './hooks/useTelemetry';
+import { Login } from './components/Login';
 
 function DisambiguationBanner({ value }: { value: string }) {
   if (value === 'NOMINAL') return null;
@@ -22,8 +24,33 @@ function DisambiguationBanner({ value }: { value: string }) {
 }
 
 function App() {
-  const { data, connected, globalStatus } = useTelemetry();
+  const [token, setToken] = useState<string | null>(localStorage.getItem('fusion_auth_token'));
+
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem('fusion_auth_token', token);
+    } else {
+      localStorage.removeItem('fusion_auth_token');
+    }
+  }, [token]);
+
+  const handleLogout = () => {
+    setToken(null);
+  };
+
+  if (!token) {
+    return <Login onLogin={setToken} />;
+  }
+
+  return <Dashboard token={token} onLogout={handleLogout} />;
+}
+
+function Dashboard({ token, onLogout }: { token: string, onLogout: () => void }) {
+  const { data, connected, globalStatus } = useTelemetry(token, onLogout);
   const latest = data.length > 0 ? data[data.length - 1] : null;
+
+  const isOnline = latest?.is_online ?? true;
+  const queueSize = latest?.local_queue_size ?? 0;
 
   return (
     <div className="min-h-screen bg-background text-white p-4 flex flex-col gap-4">
@@ -44,17 +71,29 @@ function App() {
               <span>{latest.temperature.toFixed(1)} °C</span>
             </div>
           )}
+          
+          {/* Offline/Queue Status */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${isOnline ? 'bg-emerald-900/20 border-emerald-800' : 'bg-red-900/20 border-red-800'}`}>
+            <Database size={12} className={isOnline ? 'text-emerald-500' : 'text-red-500'} />
+            <span className={`text-[10px] font-mono ${isOnline ? 'text-emerald-400' : 'text-red-400 animate-pulse'}`}>
+              {isOnline ? 'ONLINE' : 'OFFLINE'} | QUEUE: {queueSize}
+            </span>
+          </div>
+
           <div className="flex items-center gap-2 bg-[#0b0f19] px-3 py-1.5 rounded-full border border-gray-800">
             <span className={`w-2.5 h-2.5 rounded-full ${connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
-            <span className="text-xs font-mono text-gray-400">DATA LINK {connected ? 'ACTIVE' : 'OFFLINE'}</span>
+            <span className="text-[10px] font-mono text-gray-400">WS {connected ? 'ACTIVE' : 'OFFLINE'}</span>
           </div>
-          <div className={`px-3 py-1.5 rounded font-bold tracking-widest text-xs font-mono ${
+          <div className={`px-3 py-1.5 rounded font-bold tracking-widest text-[10px] font-mono ${
             globalStatus === 'NOMINAL'
               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500'
               : 'bg-amber-500/20 text-amber-400 border border-amber-500'
           }`}>
             SYS: {globalStatus}
           </div>
+          <button onClick={onLogout} className="p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-400 transition-colors">
+            <LogOut size={16} />
+          </button>
         </div>
       </header>
 
@@ -77,7 +116,7 @@ function App() {
             <SensorHealthMatrix data={data} globalStatus={globalStatus} />
           </div>
           <div className="h-[160px]">
-            <FaultInjector />
+            <FaultInjector token={token} onAuthError={onLogout} />
           </div>
           <div className="flex-grow min-h-[160px]">
             <DiagnosticBrief brief={latest?.gemini_brief ?? null} />

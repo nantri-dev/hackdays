@@ -32,19 +32,20 @@ export interface TelemetryFrame {
   gemini_brief: GeminiDiagnostic | null;
 }
 
-export function useTelemetry() {
+export function useTelemetry(token: string | null, onAuthError: () => void) {
   const [data, setData] = useState<TelemetryFrame[]>([]);
   const [connected, setConnected] = useState(false);
   const [globalStatus, setGlobalStatus] = useState('NOMINAL');
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
+    if (!token) return;
     let reconnectTimeout: ReturnType<typeof setTimeout>;
 
     const connect = () => {
       const apiBase = import.meta.env.VITE_API_URL ?? 'localhost:8000';
       const wsProto = apiBase.startsWith('https') ? 'wss' : 'ws';
-      const wsUrl = `${wsProto}://${apiBase.replace(/^https?:\/\//, '')}/ws/telemetry`;
+      const wsUrl = `${wsProto}://${apiBase.replace(/^https?:\/\//, '')}/ws/telemetry?token=${token}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -92,10 +93,14 @@ export function useTelemetry() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setConnected(false);
         setGlobalStatus('OFFLINE');
-        reconnectTimeout = setTimeout(connect, 2000);
+        if (event.code === 1008) {
+            onAuthError();
+        } else {
+            reconnectTimeout = setTimeout(connect, 2000);
+        }
       };
 
       ws.onerror = () => ws.close();
