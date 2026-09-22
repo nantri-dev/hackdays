@@ -6,6 +6,19 @@ export interface SensorData {
   corrected: number;
   r_factor: number;
   status: 'HEALTHY' | 'DRIFTING' | 'ISOLATED';
+  trust_score: number;
+  fusion_weight: number;
+  fault_class: string;
+}
+
+export interface GeminiDiagnostic {
+  sensor_id: number;
+  severity: 'Low' | 'Medium' | 'High' | 'Critical';
+  diagnosis: string;
+  action_required: string;
+  operator_confidence: number;
+  source: 'gemini' | 'fallback';
+  fallback_reason?: string;
 }
 
 export interface TelemetryFrame {
@@ -15,6 +28,8 @@ export interface TelemetryFrame {
   fused_current: number;
   bounds: [number, number];
   sensors: SensorData[];
+  disambiguation: 'NOMINAL' | 'SENSOR_FAULT' | 'REAL_EVENT_DETECTED';
+  gemini_brief: GeminiDiagnostic | null;
 }
 
 export function useTelemetry() {
@@ -22,12 +37,15 @@ export function useTelemetry() {
   const [connected, setConnected] = useState(false);
   const [globalStatus, setGlobalStatus] = useState('NOMINAL');
   const wsRef = useRef<WebSocket | null>(null);
-  
+
   useEffect(() => {
-    let reconnectTimeout: any;
+    let reconnectTimeout: ReturnType<typeof setTimeout>;
 
     const connect = () => {
-      const ws = new WebSocket('ws://localhost:8000/ws/telemetry');
+      const apiBase = import.meta.env.VITE_API_URL ?? 'localhost:8000';
+      const wsProto = apiBase.startsWith('https') ? 'wss' : 'ws';
+      const wsUrl = `${wsProto}://${apiBase.replace(/^https?:\/\//, '')}/ws/telemetry`;
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -36,22 +54,42 @@ export function useTelemetry() {
       };
 
       ws.onmessage = (event) => {
-        const frame: TelemetryFrame = JSON.parse(event.data);
-        
-        let newStatus = 'NOMINAL';
-        const hasIsolated = frame.sensors.some(s => s.status === 'ISOLATED');
-        const hasDrifting = frame.sensors.some(s => s.status === 'DRIFTING');
-        
-        if (hasIsolated) newStatus = 'DEGRADED / COMPENSATING';
-        else if (hasDrifting) newStatus = 'RECALIBRATING';
-        
-        setGlobalStatus(newStatus);
-        
-        setData(prev => {
-          const next = [...prev, frame];
-          if (next.length > 150) next.shift(); // sliding window
-          return next;
-        });
+        try {
+          const raw = JSON.parse(event.data);
+
+          const frame: TelemetryFrame = {
+            timestamp:     raw.timestamp,
+            temperature:   raw.temperature,
+            true_current:  raw.true_current,
+            fused_current: raw.fused_current,
+            bounds:        raw.bounds,
+            disambiguation: raw.disambiguation ?? 'NOMINAL',
+            gemini_brief:  raw.gemini_brief ?? null,
+            sensors: (raw.sensors as any[]).map((s) => ({
+              raw:           s.raw,
+              bias:          s.bias,
+              corrected:     s.corrected,
+              r_factor:      s.r_factor,
+              status:        s.status,
+              trust_score:   s.trust_score   ?? 1.0,
+              fusion_weight: s.fusion_weight ?? 0.25,
+              fault_class:   s.fault_class   ?? 'Healthy',
+            })),
+          };
+
+          let newStatus = 'NOMINAL';
+          if (frame.sensors.some(s => s.status === 'ISOLATED')) newStatus = 'DEGRADED / COMPENSATING';
+          else if (frame.sensors.some(s => s.status === 'DRIFTING')) newStatus = 'RECALIBRATING';
+          setGlobalStatus(newStatus);
+
+          setData(prev => {
+            const next = [...prev, frame];
+            if (next.length > 150) next.shift();
+            return next;
+          });
+        } catch (e) {
+          console.error('Failed to parse telemetry frame', e);
+        }
       };
 
       ws.onclose = () => {
@@ -60,19 +98,13 @@ export function useTelemetry() {
         reconnectTimeout = setTimeout(connect, 2000);
       };
 
-      ws.onerror = (error) => {
-        console.error("WebSocket error", error);
-        ws.close();
-      };
+      ws.onerror = () => ws.close();
     };
 
     connect();
-
     return () => {
       clearTimeout(reconnectTimeout);
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      wsRef.current?.close();
     };
   }, []);
 

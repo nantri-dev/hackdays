@@ -1,0 +1,10 @@
+fastapi==0.128.8
+uvicorn==0.39.0
+websockets==15.0.1
+filterpy==1.4.5
+numpy==2.0.2
+pydantic==2.13.5
+google-genai==1.47.0
+httpx==0.28.1
+PyYAML==6.0.2
+torch==2.8.0

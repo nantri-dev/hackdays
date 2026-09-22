@@ -4,17 +4,27 @@
   --color-background: #0b0f19;
   --color-card: #151d30;
   --color-cyan-400: #22d3ee;
+  --color-cyan-500: #06b6d4;
   --color-emerald-400: #34d399;
   --color-emerald-500: #10b981;
+  --color-emerald-900: #064e3b;
   --color-amber-400: #fbbf24;
   --color-amber-500: #f59e0b;
   --color-amber-600: #d97706;
+  --color-amber-900: #78350f;
   --color-crimson-400: #fb7185;
   --color-crimson-500: #e11d48;
+  --color-crimson-700: #be123c;
+  --color-crimson-900: #4c0519;
+  --color-rose-400: #fb7185;
 }
 
 @layer base {
   body {
-    @apply bg-background text-white m-0 p-0 font-sans;
+    background-color: var(--color-background);
+    color: white;
+    margin: 0;
+    padding: 0;
+    font-family: ui-sans-serif, system-ui, sans-serif;
   }
 }
