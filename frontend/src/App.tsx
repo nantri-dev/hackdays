@@ -113,7 +113,7 @@ function Dashboard({ token, onLogout }: { token: string, onLogout: () => void })
         {/* Right: Health + Fault Injector + Diagnostic Brief */}
         <section className="col-span-4 flex flex-col gap-4">
           <div className="h-[260px]">
-            <SensorHealthMatrix data={data} globalStatus={globalStatus} />
+            <SensorHealthMatrix data={data} />
           </div>
           <div className="h-[160px]">
             <FaultInjector token={token} onAuthError={onLogout} />

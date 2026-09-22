@@ -18,7 +18,7 @@ function TrustBar({ value }: { value: number }) {
   );
 }
 
-export function SensorHealthMatrix({ data, globalStatus }: { data: TelemetryFrame[]; globalStatus: string }) {
+export function SensorHealthMatrix({ data }: { data: TelemetryFrame[] }) {
   const current = data.length > 0 ? data[data.length - 1] : null;
 
   return (

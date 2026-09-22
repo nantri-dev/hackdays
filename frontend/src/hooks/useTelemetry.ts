@@ -28,8 +28,10 @@ export interface TelemetryFrame {
   fused_current: number;
   bounds: [number, number];
   sensors: SensorData[];
-  disambiguation: 'NOMINAL' | 'SENSOR_FAULT' | 'REAL_EVENT_DETECTED';
+  disambiguation: 'NOMINAL' | 'SENSOR_FAULT' | string;
   gemini_brief: GeminiDiagnostic | null;
+  is_online: boolean;
+  local_queue_size: number;
 }
 
 export function useTelemetry(token: string | null, onAuthError: () => void) {
@@ -66,6 +68,8 @@ export function useTelemetry(token: string | null, onAuthError: () => void) {
             bounds:        raw.bounds,
             disambiguation: raw.disambiguation ?? 'NOMINAL',
             gemini_brief:  raw.gemini_brief ?? null,
+            is_online:     raw.is_online ?? true,
+            local_queue_size: raw.local_queue_size ?? 0,
             sensors: (raw.sensors as any[]).map((s) => ({
               raw:           s.raw,
               bias:          s.bias,
